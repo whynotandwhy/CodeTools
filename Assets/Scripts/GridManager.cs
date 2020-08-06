@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
+using System.Linq;
 
 public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 {
@@ -9,13 +10,12 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
     [SerializeField] protected Tile[] groundTiles;
     [SerializeField] protected Tile[] highlightTiles;
     [SerializeField] protected Tilemap[] tilemaps;
-
-    protected List<uint> tilemapIds = new List<uint>();
-    protected List<uint> tileIds = new List<uint>();
     protected Dictionary<Vector3Int, Cell> threeAxisCells = new Dictionary<Vector3Int, Cell>();
 
-    public IReadOnlyList<uint> TilemapIds { get => tilemapIds; }
 
+    protected List<uint> tilemapIds = new List<uint>();
+    public IReadOnlyList<uint> TilemapIds => tilemapIds; 
+    protected List<uint> tileIds = new List<uint>();
     public IReadOnlyList<uint> TileIds { get => tileIds; }
 
     public void GenerateGrid(uint TileMapId, int gridHeight, MapShape mapShape)
@@ -32,25 +32,51 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
             tilemaps[TileMapId].SetTile(cell.GridPosition, highlightTiles[tileId]);
     }
 
+
+
     public bool TryGetCell(Vector3Int threeAxis, out ICell foundCell)
     {
-        throw new System.NotImplementedException();
+        Cell internalFoundCell;
+        bool returnVar = threeAxisCells.TryGetValue(threeAxis, out internalFoundCell);
+        foundCell = internalFoundCell;
+        return returnVar;
+    }
+    #region TryGetCells
+    static protected Dictionary<uint, IEnumerable<Vector3Int>> Hexagon3AxisLookup = new Dictionary<uint, IEnumerable<Vector3Int>>()
+    {
+        {0, new Vector3Int[] {Vector3Int.zero } }
+        //TODO Fill this in
+    };
+
+    protected IEnumerable<Vector3Int> Calculate3AxisHexagon(uint radius)
+    {
+        IEnumerable<Vector3Int> result;
+        Hexagon3AxisLookup.TryGetValue(radius, out result);
+        //TODO: code this to use hexagon3Axis or to calcuate it manually for larger hexagons
+        return result;
     }
 
+    public IEnumerable<ICell> TryGetCells(Vector3Int origin, uint radius = 1) { return TryGetCells(origin, Calculate3AxisHexagon(radius)); }
     public IEnumerable<ICell> TryGetCells(Vector3Int origin, IEnumerable<Vector3Int> threeAxisList)
     {
-        throw new System.NotImplementedException();
+        return threeAxisList.Select(X =>
+        {
+            ICell DesiredCell;
+            TryGetCell(origin + X, out DesiredCell);
+            return DesiredCell;
+        }).Where(X => X != default);
     }
-
-    public IEnumerable<ICell> TryGetCells(Vector3Int origin, int radius = 1)
+    #endregion
+    public void PaintTile(uint TileMapId, IEnumerable<ICell> cells, uint tileId = uint.MaxValue)
     {
-        throw new System.NotImplementedException();
+        Tile selected = (tileId > groundTiles.Length) ? default : groundTiles[tileId];
+        foreach (ICell cell in cells)
+            PaintTile(TileMapId, cell, selected);
     }
-
-    public void ChangeTile(uint TileMapId, IEnumerable<ICell> cells, uint tileId = 0)
+    protected void PaintTile(uint tileMapId, ICell cell, uint tileId = uint.MaxValue){PaintTile (tileMapId, cell, (tileId > groundTiles.Length) ? default : groundTiles[tileId]);}
+    protected void PaintTile(uint TileMapId, ICell cell, Tile selected)
     {
-        foreach(ICell cell  in cells)
-            tilemaps[TileMapId].SetTile(cell.GridPosition, groundTiles[tileId]);
+        tilemaps[TileMapId].SetTile(cell.GridPosition, selected);
     }
 
     public void ChangeTileInfo(ICell cell, TileInfo info) => (cell as Cell).TileInfo = info;
@@ -59,7 +85,7 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 
     protected void Clear()
     {
-        ChangeTile(default, threeAxisCells.Values, default);
+        ChangeTile(default, threeAxisCells.Values);
         threeAxisCells.Clear();
     }
 
@@ -99,4 +125,7 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 
         //ChangeTile(default, threeAxisCells[threeAxisPosition].GridPosition);
     }
+
+
+
 }
