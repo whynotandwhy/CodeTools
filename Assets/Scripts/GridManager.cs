@@ -4,36 +4,39 @@ using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Linq;
 
+
+
 public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 {
-    [Header("Tilemap Variabbles")]
-    [SerializeField] protected Tile[] groundTiles;
-    [SerializeField] protected Tile[] highlightTiles;
-    [SerializeField] protected Tilemap[] tilemaps;
+    [Header("Tilemap Variables")]
+    [SerializeField] protected TileMappingGroup[] tilemaps;
+
     protected Dictionary<Vector3Int, Cell> threeAxisCells = new Dictionary<Vector3Int, Cell>();
 
 
-    protected List<uint> tilemapIds = new List<uint>();
-    public IReadOnlyList<uint> TilemapIds => tilemapIds; 
-    protected List<uint> tileIds = new List<uint>();
-    public IReadOnlyList<uint> TileIds { get => tileIds; }
+    #region GridGeneration 
 
-    public void GenerateGrid(uint TileMapId, int gridHeight, MapShape mapShape)
+    protected Dictionary<MapShape, Func<uint, IEnumerable<Vector3Int> > > GenerationLogic
+         = new Dictionary<MapShape, Func<uint, IEnumerable<Vector3Int>>>()
+         {
+             { MapShape.Hexagon, CalculateHexagon }
+         };
+
+    public void GenerateGrid(uint TileMapId, uint gridHeight, MapShape mapShape)
     {
         Clear();
 
-        if (mapShape == MapShape.Hexagon)
-            GenerateHexagon(gridHeight);
+        Func<uint, IEnumerable<Vector3Int>> defineGridCells;
+        if (!GenerationLogic.TryGetValue(mapShape, out defineGridCells))
+            defineGridCells = CalculateHexagon;
+
+        IEnumerable<Vector3Int> gridToMake = defineGridCells(gridHeight);
+
+        foreach (Vector3Int gridVector in gridToMake)
+            GenerateCell(gridVector, default);
     }
 
-    public void HighlightTileMap(uint TileMapId, IEnumerable<ICell> cells, uint tileId = 0)
-    {
-        foreach (ICell cell in cells)
-            tilemaps[TileMapId].SetTile(cell.GridPosition, highlightTiles[tileId]);
-    }
-
-
-
+    #endregion
     public bool TryGetCell(Vector3Int threeAxis, out ICell foundCell)
     {
         Cell internalFoundCell;
@@ -42,17 +45,16 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
         return returnVar;
     }
     #region TryGetCells
-    static protected Dictionary<uint, IEnumerable<Vector3Int>> Hexagon3AxisLookup = new Dictionary<uint, IEnumerable<Vector3Int>>()
-    {
-        {0, new Vector3Int[] {Vector3Int.zero } }
-        //TODO Fill this in
-    };
+    static protected Dictionary<uint, IEnumerable<Vector3Int>> Hexagon3AxisLookup = new Dictionary<uint, IEnumerable<Vector3Int>>();
 
     protected IEnumerable<Vector3Int> Calculate3AxisHexagon(uint radius)
     {
         IEnumerable<Vector3Int> result;
-        Hexagon3AxisLookup.TryGetValue(radius, out result);
-        //TODO: code this to use hexagon3Axis or to calcuate it manually for larger hexagons
+        if(!Hexagon3AxisLookup.TryGetValue(radius, out result))
+        {
+            result = CalculateHexagon(radius).Select(X => CalcuateThreeAxisPosition(X));
+            Hexagon3AxisLookup.Add(radius, result);
+        }
         return result;
     }
 
@@ -67,16 +69,27 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
         }).Where(X => X != default);
     }
     #endregion
-    public void PaintTile(uint TileMapId, IEnumerable<ICell> cells, uint tileId = uint.MaxValue)
+
+    protected Tile SelectTile(TileInfo tile)
     {
-        Tile selected = (tileId > groundTiles.Length) ? default : groundTiles[tileId];
-        foreach (ICell cell in cells)
-            PaintTile(TileMapId, cell, selected);
+        return default;
     }
-    protected void PaintTile(uint tileMapId, ICell cell, uint tileId = uint.MaxValue){PaintTile (tileMapId, cell, (tileId > groundTiles.Length) ? default : groundTiles[tileId]);}
-    protected void PaintTile(uint TileMapId, ICell cell, Tile selected)
+    public void PaintTile(uint tileMapId, IEnumerable<ICell> cells, TileInfo tile, bool clearFirst = false)
     {
-        tilemaps[TileMapId].SetTile(cell.GridPosition, selected);
+        if (clearFirst)
+            Clear(tileMapId);
+
+        Tile selected = SelectTile(tile);
+        foreach (ICell cell in cells)
+            PaintTile(tileMapId, cell, selected);
+    }
+    public void PaintTile(uint tileMapId, ICell cell, TileInfo tileInfo) { PaintTile(tileMapId, cell, SelectTile(tileInfo)); }
+    public void PaintTile(uint tileMapId, Vector3Int location, TileInfo tileInfo) {PaintTile(tileMapId, location, SelectTile(tileInfo)); }
+    protected void PaintTile(uint tileMapId, ICell cell, uint tileId = uint.MaxValue){PaintTile (tileMapId, cell, (tileId > tilemaps[tileMapId].relatedTiles.Length) ? default : tilemaps[tileMapId].relatedTiles[tileId]);}
+    protected void PaintTile(uint tileMapId, ICell cell, Tile selected) { PaintTile(tileMapId, cell.GridPosition, selected); }
+    protected void PaintTile(uint tileMapId, Vector3Int location, Tile selected)
+    {
+        tilemaps[tileMapId].tilemap.SetTile(location, selected);
     }
 
     public void ChangeTileInfo(ICell cell, TileInfo info) => (cell as Cell).TileInfo = info;
@@ -85,45 +98,52 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 
     protected void Clear()
     {
-        ChangeTile(default, threeAxisCells.Values);
+        Clear(0);
         threeAxisCells.Clear();
     }
-
-    protected void GenerateHexagon(int radius)
+    public void Clear(uint index)
     {
-        //Add randomization for ground types somewhere using the line below.
-        uint tile = TileIds[0];
-        TileInfo info = TileInfo.Flat;
+        tilemaps[index].tilemap.ClearAllTiles();
+    }
 
-        GenerateRow(0, -radius, radius, info, tile);
+    protected static IEnumerable<Vector3Int> CalculateHexagon(uint radius)
+    {
+        List<Vector3Int> finalGrid = new List<Vector3Int>();
+
+        CalcuateRow(0, -(int)radius, (int)radius, finalGrid);
         for (int i = 1; i <= radius; i++)
         {
             int half = i / 2;
             int oddCorrection = i % 2;
-            GenerateRow(i, -radius + half, radius - half - oddCorrection, info, tile);
-            GenerateRow(-i, -radius + half, radius - half - oddCorrection, info, tile);
+            CalcuateRow(i, -(int)radius + half, (int)radius - half - oddCorrection, finalGrid);
+            CalcuateRow(-i, -(int)radius + half, (int)radius - half - oddCorrection, finalGrid);
         }
+
+        return finalGrid;
     }
 
-    protected void GenerateRow(int Y, int xMin, int xMax, TileInfo info, uint tile)
+    protected static void CalcuateRow(int Y, int xMin, int xMax, List<Vector3Int> list)
     {
         int currentX = xMin;
         while (currentX <= xMax)
-            GenerateCell(new Vector3Int(currentX++, Y, 0), info, tile);
+            list.Add(new Vector3Int(currentX++, Y, 0));
     }
 
-    protected void GenerateCell(Vector3Int gridPos, TileInfo info, uint tile)
+    protected Vector3Int CalcuateThreeAxisPosition(Vector3Int gridPos)
     {
         int newX = gridPos.x - gridPos.y / 2;
         if (gridPos.y % 2 == -1)
             newX++;
         int newZ = -(newX + gridPos.y);
-        Vector3Int threeAxisPosition = new Vector3Int(newX, gridPos.y, newZ);
+        return  new Vector3Int(newX, gridPos.y, newZ);
+    }
+
+    protected void GenerateCell(Vector3Int gridPos, TileInfo info)
+    {
+        Vector3Int threeAxisPosition = CalcuateThreeAxisPosition(gridPos);
         Cell newCell = new Cell(gridPos, threeAxisPosition, default, info);
 
         threeAxisCells.Add(threeAxisPosition, newCell);
-
-        //ChangeTile(default, threeAxisCells[threeAxisPosition].GridPosition);
     }
 
 
