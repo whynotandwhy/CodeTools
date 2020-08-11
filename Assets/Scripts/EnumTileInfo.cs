@@ -1,5 +1,5 @@
 ﻿[System.Flags]
-public enum TileInfo : long
+public enum TileInfo
 {
     Flat = 1 << 0,
     Hilly = 1 << 1,
@@ -7,3 +7,5 @@ public enum TileInfo : long
     ShallowWater = 1 << 3,
     DeepWater = 1 << 4,
 }
+
+// Unit Testing

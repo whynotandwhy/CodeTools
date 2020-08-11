@@ -3,16 +3,16 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Linq;
+using IEnumerableExtention;
 
 
-
+[System.Serializable]
 public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 {
     [Header("Tilemap Variables")]
     [SerializeField] protected TileMappingGroup[] tilemaps;
 
     protected Dictionary<Vector3Int, Cell> threeAxisCells = new Dictionary<Vector3Int, Cell>();
-    protected Dictionary<Vector3Int, Cell> gridCells = new Dictionary<Vector3Int, Cell>();
 
 
     #region GridGeneration 
@@ -23,9 +23,9 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
              { MapShape.Hexagon, CalculateHexagon }
          };
 
-    public void GenerateGrid(uint TileMapId, uint gridHeight, MapShape mapShape)
+    public void GenerateGrid(uint gridHeight, MapShape mapShape)
     {
-        Clear();
+        threeAxisCells.Clear();
 
         Func<uint, IEnumerable<Vector3Int>> defineGridCells;
         if (!GenerationLogic.TryGetValue(mapShape, out defineGridCells))
@@ -38,13 +38,7 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
     }
 
     #endregion
-    public bool TryGetCell(Vector3Int threeAxis, out ICell foundCell)
-    {
-        Cell internalFoundCell;
-        bool returnVar = threeAxisCells.TryGetValue(threeAxis, out internalFoundCell);
-        foundCell = internalFoundCell;
-        return returnVar;
-    }
+   
     #region TryGetCells
     static protected Dictionary<uint, IEnumerable<Vector3Int>> Hexagon3AxisLookup = new Dictionary<uint, IEnumerable<Vector3Int>>();
 
@@ -79,22 +73,24 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
     }
     #endregion
 
-    protected Tile SelectTile(TileInfo tile)
+    protected Tile SelectTile(uint tileMapId, TileInfo tile)
     {
-        return default;
+        return tilemaps[tileMapId].TranslateTileInfo(tile);
     }
+
+    #region PaintTile
     public void PaintTile(uint tileMapId, IEnumerable<ICell> cells, TileInfo tile, bool clearFirst = false)
     {
         if (clearFirst)
-            Clear(tileMapId);
+            ClearMapTiles(tileMapId);
 
-        Tile selected = SelectTile(tile);
+        Tile selected = SelectTile(tileMapId, tile);
         foreach (ICell cell in cells)
             PaintTile(tileMapId, cell, selected);
     }
-    public void PaintTile(uint tileMapId, ICell cell, TileInfo tileInfo) { PaintTile(tileMapId, cell, SelectTile(tileInfo)); }
-    public void PaintTile(uint tileMapId, Vector3Int location, TileInfo tileInfo) {PaintTile(tileMapId, location, SelectTile(tileInfo)); }
-    protected void PaintTile(uint tileMapId, ICell cell, uint tileId = uint.MaxValue){PaintTile (tileMapId, cell, (tileId > tilemaps[tileMapId].relatedTiles.Length) ? default : tilemaps[tileMapId].relatedTiles[tileId]);}
+    public void PaintTile(uint tileMapId, ICell cell, TileInfo tileInfo) { PaintTile(tileMapId, cell, SelectTile(tileMapId, tileInfo)); }
+    public void PaintTile(uint tileMapId, Vector3Int location, TileInfo tileInfo) { PaintTile(tileMapId, location, SelectTile(tileMapId, tileInfo)); }
+    protected void PaintTile(uint tileMapId, ICell cell, uint tileId = uint.MaxValue){ PaintTile(tileMapId, cell, tilemaps[tileMapId].relatedTiles.ProtectedIndex(tileId)); }
     protected void PaintTile(uint tileMapId, ICell cell, Tile selected) { PaintTile(tileMapId, cell.GridPosition, selected); }
     protected void PaintTile(uint tileMapId, Vector3Int location, Tile selected)
     {
@@ -106,12 +102,7 @@ public class GridManager : MonoBehaviour, IGridManager, IGridRenderer
 
     public void ChangeTileOccupant(ICell cell, IOccupant occupant) => (cell as Cell).Occupant = occupant;
 
-    protected void Clear()
-    {
-        Clear(0);
-        threeAxisCells.Clear();
-    }
-    public void Clear(uint index)
+    public void ClearMapTiles(uint index)
     {
         tilemaps[index].tilemap.ClearAllTiles();
     }
